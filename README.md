@@ -6,27 +6,45 @@
 
 ## Table of Contents
 
-1. [Project Overview](#project-overview)
-2. [Dataset](#dataset)
-3. [Stationarity Analysis](#stationarity-analysis)
-4. [Baseline Model — Naïve Forecast](#baseline-model--naïve-forecast)
-5. [ARIMA Model](#arima-model)
-6. [Deep Learning Models](#deep-learning-models)
+1. [Why Netflix?](#why-netflix)
+2. [Project Overview](#project-overview)
+3. [Dataset](#dataset)
+4. [Stationarity Analysis](#stationarity-analysis)
+5. [Baseline Model — Naïve Forecast](#baseline-model--naïve-forecast)
+6. [ARIMA Model](#arima-model)
+7. [Deep Learning Models](#deep-learning-models)
    - [Univariate Dense Networks (Window-based)](#univariate-dense-networks-window-based)
    - [Univariate LSTM Networks](#univariate-lstm-networks)
    - [Multivariate Model with Technical Indicators](#multivariate-model-with-technical-indicators)
-7. [Evaluation Metrics](#evaluation-metrics)
-8. [Results Summary](#results-summary)
-9. [Key Finding: Random Walk Theory & EMH](#key-finding-random-walk-theory--emh)
-10. [Why This Version Fails — and What v2 Fixes](#why-this-version-fails--and-what-v2-fixes)
-11. [Tech Stack](#tech-stack)
-12. [Project Structure](#project-structure)
+8. [Evaluation Metrics](#evaluation-metrics)
+9. [Results Summary](#results-summary)
+10. [Key Finding: Random Walk Theory & EMH](#key-finding-random-walk-theory--emh)
+11. [Why This Version Fails — and What v2 Fixes](#why-this-version-fails--and-what-v2-fixes)
+12. [Tech Stack](#tech-stack)
+13. [Project Structure](#project-structure)
+14. [References](#references)
+
+---
+
+## Why Netflix?
+
+Netflix (NFLX) is one of the most analytically interesting equities available for a time-series forecasting study, for several reasons.
+
+**Extreme price range and regime changes.** NFLX went from a post-IPO price of around $1 (split-adjusted) in 2002 to an all-time high of ~$700 in November 2021, followed by a collapse of over 75% through 2022, and a subsequent recovery. This single ticker encapsulates bull runs, speculative bubbles, macro-driven crashes, and mean reversion — making it a far richer test bed than a blue-chip stock with a smooth upward drift.
+
+**Volatility that challenges models.** Netflix's price is notoriously sensitive to earnings reports, subscriber growth numbers, and competitive dynamics (the entry of Disney+, HBO Max, etc.). This event-driven volatility makes the series highly non-stationary and difficult to model, which is precisely the property this project sets out to demonstrate and then address.
+
+**Sector significance.** Netflix is the founding member of the FAANG group and is widely regarded as the stock that defined the streaming era. Its price trajectory reflects broader narratives in technology and consumer behaviour — growth-at-all-costs investing through the 2010s, the pandemic-era demand surge, and the post-2021 valuation reset. A model that can navigate NFLX's history must generalise across genuinely different market regimes.
+
+**Data quality and availability.** Twenty-three years of clean, split-adjusted OHLCV data are freely available via Yahoo Finance, making NFLX an ideal choice for academic and portfolio projects alike.
+
+In short: NFLX is a hard stock to predict, and that is the point. A model that fails here fails informatively — and a model that eventually succeeds here would be meaningful.
 
 ---
 
 ## Project Overview
 
-This project attempts to forecast Netflix's daily closing stock price using historical price data from May 2002 to December 2025 (5,940 trading days). A range of approaches is implemented — from a simple naïve forecast to multi-layer stacked LSTMs with technical indicators — to rigorously test whether any ML model can beat a trivial baseline on raw stock price data.
+This project attempts to forecast Netflix's daily closing stock price using historical price data from May 2002 to December 2025 (approximately 5,940 trading days). A range of approaches is implemented — from a simple naïve forecast to multi-layer stacked LSTMs with multiple technical indicators — to rigorously test whether any ML model can beat a trivial baseline on raw stock price data.
 
 The central conclusion of v1 is **negative**: no model significantly outperforms the naïve forecast. This is not a failure of implementation — it is a meaningful empirical result that directly supports the **Random Walk Theory** and the **Efficient Market Hypothesis (EMH)**. This project serves as a formal proof-of-concept for those theories before attempting a more statistically sound approach in v2.
 
@@ -37,9 +55,9 @@ The central conclusion of v1 is **negative**: no model significantly outperforms
 - **Source:** Yahoo Finance via the `yfinance` Python library
 - **Ticker:** `NFLX`
 - **Date Range:** 2002-05-23 to 2025-12-30
-- **Total Observations:** 5,940 trading days
+- **Total Observations:** ~5,940 trading days
 - **Target Variable:** Daily adjusted closing price (`Close`)
-- **Train/Test Split:** 80% train (4,752 observations) / 20% test (1,188 observations)
+- **Train/Test Split:** 80% train / 20% test
 
 **Why this split ratio?** An 80/20 split is the standard for time-series data where the model must be evaluated on unseen *future* data. Crucially, no shuffling is performed — temporal order is strictly preserved to prevent look-ahead bias, which would artificially inflate model performance.
 
@@ -100,7 +118,7 @@ This is the canonical baseline for financial time series and is surprisingly har
 | ARIMA(1,1,1) | 5887.74 |
 | ARIMA(1,1,0) | 5906.19 |
 
-The lower AIC of ARIMA(1,1,1) confirms it as the better-fitting specification. A **walk-forward validation** strategy is used: the model is re-fitted at every step with the expanding history window rather than making multi-step forecasts from a fixed origin. This avoids compounding forecast errors and represents best practice for ARIMA in production.
+The lower AIC of ARIMA(1,1,1) confirms it as the better-fitting specification. A **walk-forward validation** strategy is used: the model is re-fitted at every step with an expanding history window rather than making multi-step forecasts from a fixed origin. This avoids compounding forecast errors and represents best practice for ARIMA in production.
 
 | Metric | Value |
 |--------|-------|
@@ -135,7 +153,7 @@ Dense(128, activation='relu') → Dense(1)
 - All three models have MASE > 1, meaning they are **all worse than the naïve forecast** in absolute terms.
 - The large discrepancy between training MAE (< 0.5) and test MAE (13+) is a hallmark of a model that has learned to memorise the training distribution's upward trend rather than any generalisable pattern — a direct consequence of training on a non-stationary series.
 
-**Why `StandardScaler` is fitted only on training data:** The scaler is fit exclusively on `y1` (the training set) and then applied to `y2` (the test set). This prevents data leakage — using future statistics to normalise past data — which would be a form of look-ahead bias.
+**Why `StandardScaler` is fitted only on training data:** The scaler is fit exclusively on the training set and then applied to the test set. This prevents data leakage — using future statistics to normalise past data — which would be a form of look-ahead bias.
 
 ---
 
@@ -170,17 +188,18 @@ Lambda(expand_dims) → LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=T
 
 ### Multivariate Model with Technical Indicators
 
-This is the most sophisticated setup in v1, incorporating two technical indicators alongside raw price:
+This is the most sophisticated setup in v1, incorporating three technical indicators alongside raw price.
 
 **Feature Engineering:**
-- **EMA-20 (20-day Exponential Moving Average):** A trend-following indicator that weights recent prices more heavily, smoothing short-term noise.
-- **MACD Histogram (12/26/9 configuration):** Measures momentum by comparing short and long-term EMAs. The histogram captures the acceleration of price momentum.
+- **EMA-20 (20-day Exponential Moving Average):** A trend-following indicator that weights recent prices more heavily, smoothing short-term noise. Captures the long-term trend direction.
+- **EMA-5 (5-day Exponential Moving Average):** A short-term trend indicator that reacts quickly to recent price moves. Used alongside EMA-20 to capture near-term momentum shifts that the longer EMA would smooth over.
+- **MACD Histogram (12/26/9 configuration):** Measures momentum by comparing short and long-term EMAs. The histogram captures the acceleration of price momentum, signalling potential trend changes.
 
-Each of these three features is lagged by 7 periods, creating a `[7 × 3]` input matrix (21 features total per sample). Two separate `StandardScaler` instances are used — one for inputs and one for the target — to avoid scale contamination between features and labels.
+Each of these four features (`Close`, `EMA-20`, `EMA-5`, `MACD Histogram`) is lagged by 7 periods, creating a `[7 × 4]` input matrix of 28 features per sample. Two separate `StandardScaler` instances are used — one for inputs and one for the target — to avoid scale contamination between features and labels.
 
 **Multivariate LSTM (`model_3_lstm`):**
 ```
-Lambda(reshape → [batch, 7, 3]) → LSTM(32, relu, return_sequences=True)
+Lambda(reshape → [batch, 7, 4]) → LSTM(32, relu, return_sequences=True)
                                  → LSTM(32, relu) → Dense(1)
 ```
 
@@ -194,7 +213,7 @@ Dense(128, relu) → Dense(1)
 | Multivariate LSTM | 2.32 | 3.47 | 4.45% | **2.470** |
 | Multivariate Dense | 1.11 | 1.64 | 2.17% | **1.177** |
 
-The multivariate Dense network (`model_4`) shows the best MAE of all deep learning models (1.11), yet its MASE of 1.177 still fails to beat the naïve baseline. The addition of EMA and MACD provides some marginal improvement, but the models are ultimately fitting to highly autocorrelated technical indicators derived from the same non-stationary price series — not to any genuinely predictive signal.
+The multivariate Dense network (`model_4`) shows the best MAE of all deep learning models (1.11), yet its MASE of 1.177 still fails to beat the naïve baseline. The addition of EMA-20, EMA-5, and MACD provides some marginal improvement over univariate models, but these indicators are derived from the same non-stationary price series — not from any genuinely independent predictive signal.
 
 ---
 
@@ -209,7 +228,7 @@ Four complementary metrics are used to evaluate all models:
 | **MAPE** | `mean(|y_true - y_pred| / y_true) × 100` | Percentage error — scale-invariant but undefined at zero and biased for small values. |
 | **MASE** | `MAE / MAE_naïve` | **The primary metric.** A MASE < 1 beats the naïve baseline; MASE = 1 equals it; MASE > 1 is worse. Scale-invariant and directly interpretable. |
 
-**Why MASE is the primary metric:** In financial forecasting, the question is not "how large is the error in dollars?" but "does this model add any value over the simplest possible strategy?" MASE directly answers this question by normalising error against the naïve forecast.
+**Why MASE is the primary metric:** In financial forecasting, the question is not "how large is the error in dollars?" but "does this model add any value over the simplest possible strategy?" MASE directly answers this by normalising error against the naïve forecast.
 
 ---
 
@@ -224,8 +243,8 @@ Four complementary metrics are used to evaluate all models:
 | Dense (Univariate) | 14-day | 14.29 | 1.070 | ❌ |
 | LSTM (ReLU) | 7-day | 40.05 | 3.001 | ❌ |
 | LSTM (Tanh) | 7-day | 212.32 | 15.91 | ❌ |
-| Multivariate LSTM | 7-day × 3 features | 2.32 | 2.470 | ❌ |
-| Multivariate Dense | 7-day × 3 features | 1.11 | **1.177** | ❌ |
+| Multivariate LSTM | 7-day × 4 features | 2.32 | 2.470 | ❌ |
+| Multivariate Dense | 7-day × 4 features | 1.11 | **1.177** | ❌ |
 
 **No model in v1 beats the naïve forecast on MASE.**
 
@@ -249,7 +268,7 @@ If this holds, then the best prediction of tomorrow's price is simply today's pr
 
 The EMH (Fama, 1970) asserts that asset prices at any time fully reflect all available information. In its **weak form**, it specifically claims that no trading strategy based solely on historical price data can consistently generate excess returns — because all such information is already priced in.
 
-Every model in this project uses only historical price and price-derived features (EMA, MACD). The fact that none outperforms the naïve forecast is direct empirical evidence in support of the weak-form EMH for NFLX over this period.
+Every model in this project uses only historical price and price-derived features (EMA-5, EMA-20, MACD). The fact that none outperforms the naïve forecast is direct empirical evidence in support of the weak-form EMH for NFLX over this period.
 
 **In short:** This project does not fail to predict stock prices. It *succeeds* in demonstrating that raw stock prices cannot be predicted from their own history, which is precisely what theory predicts.
 
@@ -259,7 +278,7 @@ Every model in this project uses only historical price and price-derived feature
 
 ### The Root Cause: Non-Stationarity
 
-The core technical problem is that raw closing prices are **non-stationary**. They have a time-varying mean (the long-term upward trend of NFLX from $0.12 to $94) and a time-varying variance (volatility clusters). Models trained on non-stationary data do not learn generalisable patterns — they learn the local trend of the training set and extrapolate it, which fails on the test set.
+The core technical problem is that raw closing prices are **non-stationary**. They have a time-varying mean (the long-term upward trend of NFLX from ~$1 to ~$700) and a time-varying variance (volatility clusters). Models trained on non-stationary data do not learn generalisable patterns — they learn the local trend of the training set and extrapolate it, which fails on the test set.
 
 This is why models show low training loss but drastically higher test loss: the distributional shift between the pre-2021 training data and the post-2021 test data (which includes NFLX's peak at ~$700 and its 2022 crash) is enormous.
 
@@ -271,12 +290,12 @@ In **Version 2**, raw prices are replaced with **absolute returns** (day-over-da
 returns(t) = P(t) - P(t-1)
 ```
 
-This is exactly the first-differencing operation whose stationarity is already confirmed in this notebook (ADF p ≈ 2e-22). By shifting the target from price levels to price changes, the input distribution becomes stable across the entire training period — the model no longer has to generalise across a series that ranged from $0.12 to $694.
+This is exactly the first-differencing operation whose stationarity is already confirmed in this notebook (ADF p ≈ 2e-22). By shifting the target from price levels to price changes, the input distribution becomes stable across the entire training period — the model no longer has to generalise across a series that ranged from $1 to $694.
 
 | Property | Raw Price | Absolute Return |
-|----------|-----------|-----------------|
+|----------|-----------|-----------------||
 | Stationarity | ❌ Non-stationary | ✅ Stationary |
-| Scale | Varies ($0.12 → $694) | Stable (centred near 0) |
+| Scale | Varies ($1 → $694) | Stable (centred near 0) |
 | Economic meaning | Absolute price level | Dollar-denominated daily change |
 | Suitable for ML | ❌ No | ✅ Yes |
 | Additive over time | ❌ No | ✅ Yes |
@@ -288,7 +307,7 @@ This is exactly the first-differencing operation whose stationarity is already c
 | Library | Version | Purpose |
 |---------|---------|---------|
 | `yfinance` | latest | Historical OHLCV data from Yahoo Finance |
-| `pandas` | ≥1.5 | Data manipulation and windowing |
+| `pandas` | ≥1.5 | Data manipulation and feature engineering |
 | `numpy` | ≥1.23 | Numerical operations and array manipulation |
 | `statsmodels` | ≥0.13 | ADF test, ACF/PACF plots, ARIMA model |
 | `scikit-learn` | ≥1.1 | `StandardScaler` for feature normalisation |
@@ -302,7 +321,7 @@ This is exactly the first-differencing operation whose stationarity is already c
 ```
 netflix-stock-prediction/
 │
-├── netflix.ipynb              # Main notebook — all models and analysis
+├── netflix_raw_prices.ipynb   # Main notebook — all models and analysis (v1)
 ├── README.md                  # This file
 │
 └── (v2 — coming soon)
