@@ -1,6 +1,6 @@
-# Netflix (NFLX) Stock Price Prediction — v1
+# Netflix (NFLX) Stock Forecasting — v1 & v2
 
-> **A time-series forecasting study on Netflix stock prices (2002–2025) using classical statistical models and deep learning. This version proves the hypothesis that raw stock prices are fundamentally unpredictable, empirically validating the Random Walk Theory and the Efficient Market Hypothesis (EMH). Version 2 of this project addresses this limitation by predicting absolute returns instead of raw prices.**
+> **A two-phase time-series forecasting study on Netflix stock (2002–2025). v1 uses classical statistical models and deep learning on raw prices, empirically validating the Random Walk Theory and the Efficient Market Hypothesis (EMH) — proving that raw prices are fundamentally unpredictable. v2 addresses this by shifting the prediction target to absolute returns (daily price differences), a stationary series, and extends the model zoo with GRU networks and a leakage-free multivariate pipeline.**
 
 ---
 
@@ -16,13 +16,21 @@
    - [Univariate Dense Networks (Window-based)](#univariate-dense-networks-window-based)
    - [Univariate LSTM Networks](#univariate-lstm-networks)
    - [Multivariate Model with Technical Indicators](#multivariate-model-with-technical-indicators)
-8. [Evaluation Metrics](#evaluation-metrics)
-9. [Results Summary](#results-summary)
-10. [Key Finding: Random Walk Theory & EMH](#key-finding-random-walk-theory--emh)
-11. [Why This Version Fails — and What v2 Fixes](#why-this-version-fails--and-what-v2-fixes)
-12. [Tech Stack](#tech-stack)
-13. [Project Structure](#project-structure)
-14. [References](#references)
+8. [v2 — Absolute Returns Prediction](#v2--absolute-returns-prediction)
+   - [Target Transformation](#target-transformation)
+   - [Naïve Baseline on Returns](#naïve-baseline-on-returns)
+   - [Univariate Dense Networks (Returns)](#univariate-dense-networks-returns)
+   - [Univariate LSTM Networks (Returns)](#univariate-lstm-networks-returns)
+   - [Multivariate Models on Returns](#multivariate-models-on-returns)
+   - [GRU Network](#gru-network)
+9. [Evaluation Metrics](#evaluation-metrics)
+10. [Results Summary](#results-summary)
+11. [Key Finding: Random Walk Theory & EMH](#key-finding-random-walk-theory--emh)
+12. [Why v1 Fails — and What v2 Fixes](#why-v1-fails--and-what-v2-fixes)
+13. [Model Persistence](#model-persistence)
+14. [Tech Stack](#tech-stack)
+15. [Project Structure](#project-structure)
+16. [References](#references)
 
 ---
 
@@ -44,9 +52,11 @@ In short: NFLX is a hard stock to predict, and that is the point. A model that f
 
 ## Project Overview
 
-This project attempts to forecast Netflix's daily closing stock price using historical price data from May 2002 to December 2025 (approximately 5,940 trading days). A range of approaches is implemented — from a simple naïve forecast to multi-layer stacked LSTMs with multiple technical indicators — to rigorously test whether any ML model can beat a trivial baseline on raw stock price data.
+This project attempts to forecast Netflix's daily closing stock price (v1) and daily absolute returns (v2) using historical price data from May 2002 to December 2025 (approximately 5,940 trading days). A range of approaches is implemented — from a simple naïve forecast to multi-layer stacked LSTMs and GRUs with multiple technical indicators — to rigorously test whether any ML model can beat a trivial baseline.
 
-The central conclusion of v1 is **negative**: no model significantly outperforms the naïve forecast. This is not a failure of implementation — it is a meaningful empirical result that directly supports the **Random Walk Theory** and the **Efficient Market Hypothesis (EMH)**. This project serves as a formal proof-of-concept for those theories before attempting a more statistically sound approach in v2.
+**v1** (`netflix_raw_prices.ipynb`) targets raw closing prices and arrives at a **negative** central conclusion: no model significantly outperforms the naïve forecast. This is not a failure of implementation — it is a meaningful empirical result that directly supports the **Random Walk Theory** and the **Efficient Market Hypothesis (EMH)**.
+
+**v2** (`netflix_returns.ipynb`) corrects the root cause of v1's failure by predicting **absolute returns** — a stationary target — and extends the model suite with a GRU architecture and a leakage-free multivariate pipeline where technical indicators are computed separately for the train and test splits.
 
 ---
 
@@ -56,10 +66,13 @@ The central conclusion of v1 is **negative**: no model significantly outperforms
 - **Ticker:** `NFLX`
 - **Date Range:** 2002-05-23 to 2025-12-30
 - **Total Observations:** ~5,940 trading days
-- **Target Variable:** Daily adjusted closing price (`Close`)
+- **Target Variable (v1):** Daily adjusted closing price (`Close`)
+- **Target Variable (v2):** Absolute daily return — `returns(t) = Close(t) − Close(t−1)`
 - **Train/Test Split:** 80% train / 20% test
 
 **Why this split ratio?** An 80/20 split is the standard for time-series data where the model must be evaluated on unseen *future* data. Crucially, no shuffling is performed — temporal order is strictly preserved to prevent look-ahead bias, which would artificially inflate model performance.
+
+**v2 split discipline:** In v2, the 80/20 split is applied to raw prices *before* computing returns. This ensures that `y1_returns = diff(y1)` and `y2_returns = diff(y2)` — there is no cross-contamination of the boundary price between the two splits, which would constitute a subtle form of data leakage.
 
 ---
 
@@ -76,14 +89,14 @@ p-value:        0.999
 
 The p-value of ~1.0 is far above any significance threshold (0.05), meaning we **fail to reject the null hypothesis of a unit root**. The raw price series is non-stationary — its mean and variance change over time, making it unsuitable for direct modelling with most statistical and ML methods.
 
-### First-Differenced Series (Stationary)
+### First-Differenced Series / Absolute Returns (Stationary)
 
 ```
 ADF Statistic:  -12.086
 p-value:        2.18e-22
 ```
 
-After first-order differencing, the p-value collapses to essentially zero. The series is now stationary — confirming that **price changes (not price levels)** are the appropriate quantity to model. This is a core motivation for switching to absolute returns in v2.
+After first-order differencing, the p-value collapses to essentially zero. The series is now stationary — confirming that **price changes (not price levels)** are the appropriate quantity to model. This is the core motivation for v2.
 
 **Why does non-stationarity matter?**
 A non-stationary series violates the fundamental assumptions of ARIMA, standard regression, and neural network training alike. Models trained on non-stationary data learn the local trend rather than any true predictive pattern, resulting in a deceptively low training loss but poor generalisation.
@@ -92,13 +105,15 @@ A non-stationary series violates the fundamental assumptions of ARIMA, standard 
 
 ## Baseline Model — Naïve Forecast
 
-The naïve forecast predicts that tomorrow's price equals today's price:
+The naïve forecast predicts that tomorrow's price (or return) equals today's price (or return):
 
 ```
 ŷ(t) = y(t - 1)
 ```
 
-This is the canonical baseline for financial time series and is surprisingly hard to beat. Its MASE (Mean Absolute Scaled Error) score of **~1.0** defines the unit of comparison for all other models — any model with MASE > 1 is *worse* than doing nothing.
+This is the canonical baseline for financial time series and is surprisingly hard to beat. Its MASE score of **~1.0** defines the unit of comparison for all other models — any model with MASE > 1 is *worse* than doing nothing.
+
+**v1 — Naïve on raw prices:**
 
 | Metric | Value |
 |--------|-------|
@@ -147,6 +162,8 @@ A sliding-window approach converts the 1D price series into supervised learning 
 ```
 Dense(128, activation='relu') → Dense(1)
 ```
+
+**Training setup:** All dense models share the same training configuration — `Adam` optimiser, MAE loss, `EarlyStopping(patience=10)` on validation loss, and `ReduceLROnPlateau(patience=10, factor=0.2, min_lr=1e-5)` to decay the learning rate when progress stalls. `restore_best_weights=True` ensures the best checkpoint is retained.
 
 **Key observations:**
 - The 7-day window performs best among the three, suggesting any historical information beyond one week adds noise rather than signal for raw prices.
@@ -217,22 +234,152 @@ The multivariate Dense network (`model_4`) shows the best MAE of all deep learni
 
 ---
 
+## v2 — Absolute Returns Prediction
+
+### Target Transformation
+
+v2 replaces the raw closing price with **absolute returns** as the prediction target:
+
+```
+returns(t) = Close(t) − Close(t−1)
+```
+
+This is exactly the first-differencing operation whose stationarity is already confirmed in the v1 notebook (ADF p ≈ 2e-22). By shifting the target from price levels to price changes, the input distribution becomes stable across the entire training period — the model no longer has to generalise across a series that ranged from $1 to $694.
+
+| Property | Raw Price | Absolute Return |
+|----------|-----------|-----------------||
+| Stationarity | ❌ Non-stationary | ✅ Stationary |
+| Scale | Varies ($1 → $694) | Stable (centred near 0) |
+| Economic meaning | Absolute price level | Dollar-denominated daily change |
+| Suitable for ML | ❌ No | ✅ Yes |
+| Additive over time | ❌ No | ✅ Yes |
+
+**No `StandardScaler` in v2 univariate models:** Because absolute returns are already near-zero-centred and have a stable variance across time, the univariate models in v2 operate directly on raw return values without scaling. This simplifies the pipeline and eliminates the need for inverse transforms at evaluation time.
+
+---
+
+### Naïve Baseline on Returns
+
+The naïve forecast on returns carries over the same logic: tomorrow's return equals today's return.
+
+| Metric | Value |
+|--------|-------|
+| MAE    | 1.357 |
+| RMSE   | 2.048 |
+| MAPE   | — *(unreliable; returns are near zero)* |
+| MASE   | **0.999** |
+
+> **Note on MAPE:** MAPE is mathematically undefined (or astronomically large) when the true value is close to zero, which is common for daily returns. The raw value from the notebook (414,440) is meaningless and is therefore omitted. MASE remains the primary metric throughout v2.
+
+---
+
+### Univariate Dense Networks (Returns)
+
+The same three window sizes (7, 10, 14 days) are evaluated on the returns series, using the identical `Dense(128, relu) → Dense(1)` architecture and the same training callbacks as v1.
+
+| Model | Window Size | MAE | RMSE | MASE |
+|-------|-------------|-----|------|------|
+| Model 1 (Dense) | 7 days  | 0.961 | 1.477 | **0.709** |
+| Model 2 (Dense) | 10 days | 0.964 | 1.476 | **0.712** |
+| Model 3 (Dense) | 14 days | 0.983 | 1.492 | **0.724** |
+
+All three beat the naïve baseline (MASE < 1), a direct result of switching to a stationary target. The 7-day window again performs best, consistent with v1's finding that week-level lookbacks are sufficient for daily NFLX data.
+
+---
+
+### Univariate LSTM Networks (Returns)
+
+Two stacked LSTM variants are tested on the 7-day returns window, with the activation order *reversed* relative to v1 — here tanh is tested first and relu second. This is intentional: v1 demonstrated that tanh is pathological for raw prices, whereas v2 tests whether it recovers on a stationary target.
+
+**Model `uni_lstm_1` — Tanh activation:**
+```
+Lambda(expand_dims) → LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
+                    → LSTM(32, tanh, recurrent_dropout=0.2) → Dense(1)
+```
+
+**Model `uni_lstm_2` — ReLU activation:**
+```
+Lambda(expand_dims) → LSTM(32, relu, recurrent_dropout=0.2, return_sequences=True)
+                    → LSTM(32, relu, recurrent_dropout=0.2) → Dense(1)
+```
+
+| Model | Activation | MAE | RMSE | MASE |
+|-------|-----------|-----|------|------|
+| LSTM 1 (uni_lstm_1) | Tanh | 0.943 | 1.462 | **0.696** |
+| LSTM 2 (uni_lstm_2) | ReLU | 0.944 | 1.462 | **0.696** |
+
+Both models beat the naïve baseline and perform virtually on par — a sharp contrast to v1 where both LSTMs catastrophically diverged (MASE 3.0 and 15.9). This confirms that the stationary target is the decisive fix. Both use `EarlyStopping(patience=10)` and `ReduceLROnPlateau(patience=10, factor=0.2, min_lr=1e-5)`. The ReLU variant (`model_uni_lstm_2`) is saved as a `.keras` artifact for downstream use.
+
+---
+
+### Multivariate Models on Returns
+
+The multivariate pipeline in v2 introduces a critical architectural change over v1: **technical indicators are computed independently on the train and test splits** rather than on the full price series before splitting. This eliminates lookahead bias in the indicator computation itself, which was a subtle leakage vector in v1.
+
+**Feature Engineering on Returns:**
+- **EMA-20 of returns:** Tracks the smoothed medium-term trend of daily price changes.
+- **EMA-5 of returns:** Captures short-term momentum in the return series.
+- **MACD Histogram of returns (12/26/9):** Measures acceleration of momentum within the return series rather than the raw price series.
+
+Each of these four features (`returns`, `EMA-20`, `EMA-5`, `MACD Histogram`) is lagged 7 periods, producing a `[7 × 4]` input of 28 features per sample — identical in shape to v1's multivariate setup.
+
+**No StandardScaler on returns multivariate inputs or targets:** Since the return series is stationary and near-zero-centred, no feature scaling is applied. The model trains directly on raw return values and the `model_preds_uni` helper function is reused without any inverse transform.
+
+Three multivariate models are evaluated:
+
+**Multivariate Dense (`model_multi_1`):**
+```
+Dense(128, relu) → Dense(1)
+```
+
+**Multivariate LSTM (`model_multi_lstm`):**
+```
+Lambda(expand_dims) → LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
+                    → LSTM(32, tanh, recurrent_dropout=0.2) → Dense(1)
+```
+
+**Multivariate GRU (`model_multi_gru`):**
+```
+Lambda(expand_dims) → GRU(32, tanh, recurrent_dropout=0.2, return_sequences=True)
+                    → GRU(32, tanh, recurrent_dropout=0.2) → Dense(1)
+```
+
+| Model | MAE | RMSE | MASE | Beats Naïve? |
+|-------|-----|------|------|:---:|
+| Multivariate Dense | 0.960 | 1.471 | **0.709** | ✅ |
+| Multivariate LSTM (Tanh) | 0.942 | 1.462 | **0.695** | ✅ |
+| Multivariate GRU (Tanh) | 0.942 | 1.463 | **0.695** | ✅ |
+
+The multivariate LSTM and GRU are the best-performing models overall, with MASE of 0.695 — roughly 30% better than naïve. The multivariate Dense model (0.709) also beats naïve, though by a smaller margin than the recurrent models.
+
+---
+
+### GRU Network
+
+The **Gated Recurrent Unit (GRU)** is introduced in v2 as an alternative to LSTM. GRUs use two gates (reset and update) instead of LSTM's three (input, forget, output), making them computationally lighter while achieving comparable performance on many sequence tasks. On a stationary returns series with relatively low autocorrelation, the simpler gating structure of GRU may be less prone to over-fitting than LSTM. The best-performing multivariate model (`model_multi_gru`) is saved as a `.keras` artifact.
+
+---
+
 ## Evaluation Metrics
 
 Four complementary metrics are used to evaluate all models:
 
 | Metric | Formula | Interpretation |
 |--------|---------|----------------|
-| **MAE** | `mean(|y_true - y_pred|)` | Average absolute error in raw price units (USD). Scale-dependent. |
+| **MAE** | `mean(|y_true - y_pred|)` | Average absolute error in raw units (USD for prices, USD for returns). Scale-dependent. |
 | **RMSE** | `sqrt(mean((y_true - y_pred)²))` | Penalises large errors more heavily than MAE. Sensitive to outliers. |
-| **MAPE** | `mean(|y_true - y_pred| / y_true) × 100` | Percentage error — scale-invariant but undefined at zero and biased for small values. |
+| **MAPE** | `mean(|y_true - y_pred| / y_true) × 100` | Percentage error — scale-invariant but undefined at zero and biased for small values. Less reliable for returns, which can be near zero. |
 | **MASE** | `MAE / MAE_naïve` | **The primary metric.** A MASE < 1 beats the naïve baseline; MASE = 1 equals it; MASE > 1 is worse. Scale-invariant and directly interpretable. |
 
 **Why MASE is the primary metric:** In financial forecasting, the question is not "how large is the error in dollars?" but "does this model add any value over the simplest possible strategy?" MASE directly answers this by normalising error against the naïve forecast.
 
+**Note on MAPE for returns:** MAPE becomes unreliable when the true value is near zero (as daily returns frequently are). It is retained for comparability with v1 but should be interpreted cautiously in the v2 context.
+
 ---
 
 ## Results Summary
+
+### v1 — Raw Prices
 
 | Model | Window / Config | MAE | MASE | Beats Naïve? |
 |-------|----------------|-----|------|:---:|
@@ -248,11 +395,29 @@ Four complementary metrics are used to evaluate all models:
 
 **No model in v1 beats the naïve forecast on MASE.**
 
+### v2 — Absolute Returns
+
+*(Exact numeric results depend on execution environment. The key architectural and methodological improvements are listed below.)*
+
+| Model | Window / Config | MAE | MASE | Beats Naïve? |
+|-------|----------------|-----|------|:---:|
+| Naïve Forecast | — | 1.357 | 1.000 | — (baseline) |
+| Dense (Univariate) | 7-day | 0.961 | 0.709 | ✅ |
+| Dense (Univariate) | 10-day | 0.964 | 0.712 | ✅ |
+| Dense (Univariate) | 14-day | 0.983 | 0.724 | ✅ |
+| LSTM (Tanh) | 7-day | 0.943 | 0.696 | ✅ |
+| LSTM (ReLU) | 7-day | 0.944 | 0.696 | ✅ |
+| Multivariate Dense | 7-day × 4 features | 0.960 | 0.709 | ✅ |
+| Multivariate LSTM (Tanh) | 7-day × 4 features | 0.942 | **0.695** | ✅ |
+| **Multivariate GRU (Tanh)** | 7-day × 4 features | **0.942** | **0.695** | ✅ |
+
+**Every model in v2 beats the naïve forecast. The best models (Multivariate LSTM and GRU) achieve a MASE of 0.695 — approximately 30% better than naïve.**
+
 ---
 
 ## Key Finding: Random Walk Theory & EMH
 
-The failure of every model in this project is not a bug — it is the expected result according to two foundational theories in financial economics.
+The failure of every model in v1 is not a bug — it is the expected result according to two foundational theories in financial economics.
 
 ### Random Walk Theory
 
@@ -268,13 +433,13 @@ If this holds, then the best prediction of tomorrow's price is simply today's pr
 
 The EMH (Fama, 1970) asserts that asset prices at any time fully reflect all available information. In its **weak form**, it specifically claims that no trading strategy based solely on historical price data can consistently generate excess returns — because all such information is already priced in.
 
-Every model in this project uses only historical price and price-derived features (EMA-5, EMA-20, MACD). The fact that none outperforms the naïve forecast is direct empirical evidence in support of the weak-form EMH for NFLX over this period.
+Every model in this project uses only historical price and price-derived features (EMA-5, EMA-20, MACD). The fact that none outperforms the naïve forecast in v1 is direct empirical evidence in support of the weak-form EMH for NFLX over this period.
 
-**In short:** This project does not fail to predict stock prices. It *succeeds* in demonstrating that raw stock prices cannot be predicted from their own history, which is precisely what theory predicts.
+**In short:** v1 does not fail to predict stock prices. It *succeeds* in demonstrating that raw stock prices cannot be predicted from their own history, which is precisely what theory predicts.
 
 ---
 
-## Why This Version Fails — and What v2 Fixes
+## Why v1 Fails — and What v2 Fixes
 
 ### The Root Cause: Non-Stationarity
 
@@ -282,23 +447,31 @@ The core technical problem is that raw closing prices are **non-stationary**. Th
 
 This is why models show low training loss but drastically higher test loss: the distributional shift between the pre-2021 training data and the post-2021 test data (which includes NFLX's peak at ~$700 and its 2022 crash) is enormous.
 
-### The v2 Fix: Absolute Returns
+### The v2 Fix: Absolute Returns + Leakage-Free Multivariate Pipeline
 
-In **Version 2**, raw prices are replaced with **absolute returns** (day-over-day price differences) as the prediction target:
+v2 applies two corrections simultaneously:
 
-```
-returns(t) = P(t) - P(t-1)
-```
+**1. Stationary target:** Raw prices are replaced with absolute returns — the first-differenced series confirmed stationary by the ADF test. The input distribution is now stable across the full training horizon; the model is no longer forced to extrapolate across a price range spanning two orders of magnitude.
 
-This is exactly the first-differencing operation whose stationarity is already confirmed in this notebook (ADF p ≈ 2e-22). By shifting the target from price levels to price changes, the input distribution becomes stable across the entire training period — the model no longer has to generalise across a series that ranged from $1 to $694.
+**2. Leakage-free indicator computation:** In v1, EMA and MACD are computed on the full price series before splitting, meaning the training-set indicators technically incorporate forward-looking statistics from the normalisation of the joint series. In v2, indicators are computed separately on `netflix_train_price_df` and `netflix_test_price_df` — eliminating this subtle lookahead bias.
 
-| Property | Raw Price | Absolute Return |
-|----------|-----------|-----------------||
-| Stationarity | ❌ Non-stationary | ✅ Stationary |
-| Scale | Varies ($1 → $694) | Stable (centred near 0) |
-| Economic meaning | Absolute price level | Dollar-denominated daily change |
-| Suitable for ML | ❌ No | ✅ Yes |
-| Additive over time | ❌ No | ✅ Yes |
+**3. No input scaling for multivariate returns models:** Because the return series and its derived indicators are already near-zero-centred, `StandardScaler` is omitted from the multivariate v2 pipeline entirely. This removes one source of complexity and one potential leakage point.
+
+---
+
+## Model Persistence
+
+Trained models and scalers are saved for downstream inference and deployment:
+
+**v1 artifacts (saved via `joblib` and Keras):**
+- `Models/scaler_prices.pkl` — univariate `StandardScaler`
+- `Models/scaler_multi_input_prices.pkl` — multivariate input scaler
+- `Models/scaler_multi_target_prices.pkl` — multivariate target scaler
+- `Models/dense_model_uni_prices.keras` — best univariate dense model (7-day)
+
+**v2 artifacts (saved via Keras):**
+- `Models/lstm_uni_returns.keras` — best univariate LSTM on returns (`model_uni_lstm_2`, ReLU)
+- `Models/gru_multi_returns.keras` — best multivariate GRU on returns
 
 ---
 
@@ -310,9 +483,10 @@ This is exactly the first-differencing operation whose stationarity is already c
 | `pandas` | ≥1.5 | Data manipulation and feature engineering |
 | `numpy` | ≥1.23 | Numerical operations and array manipulation |
 | `statsmodels` | ≥0.13 | ADF test, ACF/PACF plots, ARIMA model |
-| `scikit-learn` | ≥1.1 | `StandardScaler` for feature normalisation |
-| `tensorflow` / `keras` | ≥2.12 | Dense and LSTM neural network models |
-| `matplotlib` | ≥3.6 | Visualisation of price series and predictions |
+| `scikit-learn` | ≥1.1 | `StandardScaler` for feature normalisation (v1) |
+| `tensorflow` / `keras` | ≥2.12 | Dense, LSTM, and GRU neural network models |
+| `matplotlib` | ≥3.6 | Visualisation of price series, returns, and predictions |
+| `joblib` | latest | Model and scaler persistence |
 
 ---
 
@@ -321,11 +495,17 @@ This is exactly the first-differencing operation whose stationarity is already c
 ```
 netflix-stock-prediction/
 │
-├── netflix_raw_prices.ipynb   # Main notebook — all models and analysis (v1)
+├── netflix_raw_prices.ipynb   # v1 — raw price prediction; proves EMH empirically
+├── netflix_returns.ipynb      # v2 — absolute returns prediction; stationary target
 ├── README.md                  # This file
 │
-└── (v2 — coming soon)
-    └── netflix_returns.ipynb  # Absolute return prediction with stationary targets
+└── Models/
+    ├── scaler_prices.pkl                  # v1 univariate scaler
+    ├── scaler_multi_input_prices.pkl      # v1 multivariate input scaler
+    ├── scaler_multi_target_prices.pkl     # v1 multivariate target scaler
+    ├── dense_model_uni_prices.keras       # v1 best univariate dense (7-day window)
+    ├── lstm_uni_returns.keras             # v2 best univariate LSTM (relu, 7-day)
+    └── gru_multi_returns.keras            # v2 best multivariate GRU
 ```
 
 ---
@@ -336,6 +516,7 @@ netflix-stock-prediction/
 - Malkiel, B. G. (1973). *A Random Walk Down Wall Street.* W. W. Norton & Company.
 - Box, G. E. P., Jenkins, G. M. (1970). *Time Series Analysis: Forecasting and Control.* Holden-Day.
 - Hochreiter, S., & Schmidhuber, J. (1997). *Long Short-Term Memory.* Neural Computation, 9(8), 1735–1780.
+- Cho, K., et al. (2014). *Learning Phrase Representations using RNN Encoder-Decoder for Statistical Machine Translation.* arXiv:1406.1078. *(Introduces the GRU architecture.)*
 
 ---
 
