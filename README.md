@@ -355,7 +355,7 @@ Both models beat the naive baseline and perform virtually on par — a sharp con
 
 **Why tanh recovers in the returns notebook:** In the raw prices notebook, the tanh LSTM collapsed because it was trying to track an unbounded, trending signal using bounded activations. The hidden state saturated, gradients vanished, and the network lost its memory entirely. In the returns notebook, the target is stationary and near-zero-centred. The values the LSTM needs to track — daily dollar changes fluctuating around zero — are well within the natural operating range of tanh's (-1, 1) output. The gating mechanism can function as intended: the forget gate learns what to discard, the input gate learns what to absorb, and gradients flow stably across time steps. The non-stationarity of raw prices was masking what tanh is actually well-suited to do. The returns notebook rehabilitates it fully.
 
-The ReLU variant (`model_uni_lstm_2`) is saved as a `.keras` artifact for downstream use.
+The Tanh variant (`model_uni_lstm_1`) is saved as a `.keras` artifact for downstream use.
 
 ---
 
@@ -548,7 +548,7 @@ Trained models and scalers are saved for downstream inference and deployment.
 - `Models/dense_model_uni_prices.keras` — best univariate dense model (7-day window)
 
 **Returns notebook artifacts (saved via Keras):**
-- `Models/lstm_uni_returns.keras` — best univariate LSTM on returns (`model_uni_lstm_2`, ReLU)
+- `Models/lstm_uni_returns.keras` — best univariate LSTM on returns (`model_uni_lstm_1`, Tanh)
 - `Models/gru_multi_returns.keras` — best multivariate GRU on returns
 
 ---
@@ -582,7 +582,7 @@ netflix-stock-prediction/
     |-- scaler_multi_input_prices.pkl      # Multivariate input scaler (raw prices)
     |-- scaler_multi_target_prices.pkl     # Multivariate target scaler (raw prices)
     |-- dense_model_uni_prices.keras       # Best univariate dense model (7-day window)
-    |-- lstm_uni_returns.keras             # Best univariate LSTM on returns (ReLU, 7-day)
+    |-- lstm_uni_returns.keras             # Best univariate LSTM on returns (Tanh, 7-day)
     +-- gru_multi_returns.keras            # Best multivariate GRU on returns
 ```
 
