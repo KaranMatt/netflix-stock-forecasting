@@ -207,9 +207,9 @@ Dense(128, activation='relu') -> Dense(1)
 
 | Model | Window Size | MAE | RMSE | MAPE | MASE |
 |-------|-------------|-----|------|------|------|
-| Model 1 (Dense) | 7 days  | 13.75 | 21.14 | 1.79% | 1.030 |
-| Model 2 (Dense) | 10 days | 14.13 | 21.54 | 1.87% | 1.060 |
-| Model 3 (Dense) | 14 days | 14.29 | 21.66 | 1.88% | 1.070 |
+| Model 1 (Dense) | 7 days  | 0.980 | 1.503 | 1.874% | 1.042 |
+| Model 2 (Dense) | 10 days | 1.012 | 1.550 | 1.953% | 1.078 |
+| Model 3 (Dense) | 14 days | 1.140 | 1.718 | 2.198% | 1.211 |
 
 All three models are worse than the naive forecast. The 7-day window performs best, suggesting historical information beyond one week adds noise rather than signal when the target is a non-stationary price level. The large discrepancy between training MAE (below 0.5) and test MAE (above 13) is a hallmark of distributional shift — the model memorises the upward trend of the training period and then extrapolates it into the test period where the distribution has radically changed.
 
@@ -223,20 +223,20 @@ Two stacked LSTM architectures are tested on the 7-day window (best from the Den
 
 **Model `uni_lstm1` — ReLU activation:**
 ```
-Lambda(expand_dims) -> LSTM(32, relu, recurrent_dropout=0.2, return_sequences=True)
-                    -> LSTM(32, relu, recurrent_dropout=0.2) -> Dense(1)
+Reshape((7, 1)) -> LSTM(32, relu, recurrent_dropout=0.2, return_sequences=True)
+                 -> LSTM(32, relu, recurrent_dropout=0.2) -> Dense(1)
 ```
 
 **Model `uni_lstm2` — Tanh activation:**
 ```
-Lambda(expand_dims) -> LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
-                    -> LSTM(32, tanh, recurrent_dropout=0.2) -> Dense(1)
+Reshape((7, 1)) -> LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
+                 -> LSTM(32, tanh, recurrent_dropout=0.2) -> Dense(1)
 ```
 
 | Model | Activation | MAE | RMSE | MAPE | MASE |
 |-------|-----------|-----|------|------|------|
-| LSTM 1 | ReLU | 40.05 | 51.17 | 5.08% | 3.001 |
-| LSTM 2 | Tanh | 212.32 | 376.30 | 15.84% | 15.91 |
+| LSTM 1 | ReLU | 2.093 | 3.017 | 3.678% | 2.226 |
+| LSTM 2 | Tanh | 7.153 | 13.624 | 8.002% | 7.605 |
 
 Both models fail catastrophically — the ReLU variant is three times worse than naive, and the tanh variant nearly sixteen times worse. The reasons are distinct for each.
 
@@ -261,8 +261,8 @@ Each of the four features (`Close`, `EMA-20`, `EMA-5`, `MACD Histogram`) is lagg
 
 **Multivariate LSTM (`model_3_lstm`):**
 ```
-Lambda(reshape -> [batch, 7, 4]) -> LSTM(32, relu, return_sequences=True)
-                                 -> LSTM(32, relu) -> Dense(1)
+Reshape((7, 4)) -> LSTM(32, relu, return_sequences=True)
+                -> LSTM(32, relu) -> Dense(1)
 ```
 
 **Multivariate Dense (`model_4`):**
@@ -272,10 +272,10 @@ Dense(128, relu) -> Dense(1)
 
 | Model | MAE | RMSE | MAPE | MASE |
 |-------|-----|------|------|------|
-| Multivariate LSTM | 2.32 | 3.47 | 4.45% | 2.470 |
-| Multivariate Dense | 1.11 | 1.64 | 2.17% | 1.177 |
+| Multivariate LSTM | 2.597 | 4.129 | 4.402% | 2.766 |
+| Multivariate Dense | 1.095 | 1.637 | 2.144% | 1.165 |
 
-The multivariate Dense model achieves the best MAE of all deep learning models in this notebook (1.11), yet its MASE of 1.177 still fails to beat the naive baseline. EMA and MACD are derived entirely from the same non-stationary price series — they carry no genuinely independent predictive signal, only redundant transformations of the same trending data.
+The multivariate Dense model achieves the best MAE of all deep learning models in this notebook (1.095), yet its MASE of 1.165 still fails to beat the naive baseline. EMA and MACD are derived entirely from the same non-stationary price series — they carry no genuinely independent predictive signal, only redundant transformations of the same trending data.
 
 ---
 
@@ -322,9 +322,9 @@ The same three window sizes (7, 10, 14 days) are evaluated on the returns series
 
 | Model | Window Size | MAE | RMSE | MASE |
 |-------|-------------|-----|------|------|
-| Model 1 (Dense) | 7 days  | 0.961 | 1.477 | 0.709 |
-| Model 2 (Dense) | 10 days | 0.964 | 1.476 | 0.712 |
-| Model 3 (Dense) | 14 days | 0.983 | 1.492 | 0.724 |
+| Model 1 (Dense) | 7 days  | 0.964 | 1.477 | 0.711 |
+| Model 2 (Dense) | 10 days | 0.977 | 1.494 | 0.722 |
+| Model 3 (Dense) | 14 days | 0.972 | 1.487 | 0.716 |
 
 All three beat the naive baseline — a direct result of switching to a stationary target. The 7-day window again performs best. MAPE values for these models are in the tens of thousands of percent and are omitted from this table for the same structural reason as the naive baseline.
 
@@ -336,22 +336,22 @@ Two stacked LSTM variants are tested on the 7-day returns window:
 
 **Model `uni_lstm_1` — Tanh activation:**
 ```
-Lambda(expand_dims) -> LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
-                    -> LSTM(32, tanh, recurrent_dropout=0.2) -> Dense(1)
+Reshape((7, 1)) -> LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
+                 -> LSTM(32, tanh, recurrent_dropout=0.2) -> Dense(1)
 ```
 
 **Model `uni_lstm_2` — ReLU activation:**
 ```
-Lambda(expand_dims) -> LSTM(32, relu, recurrent_dropout=0.2, return_sequences=True)
-                    -> LSTM(32, relu, recurrent_dropout=0.2) -> Dense(1)
+Reshape((7, 1)) -> LSTM(32, relu, recurrent_dropout=0.2, return_sequences=True)
+                 -> LSTM(32, relu, recurrent_dropout=0.2) -> Dense(1)
 ```
 
 | Model | Activation | MAE | RMSE | MASE |
 |-------|-----------|-----|------|------|
-| LSTM 1 (uni_lstm_1) | Tanh | 0.943 | 1.462 | 0.696 |
-| LSTM 2 (uni_lstm_2) | ReLU | 0.944 | 1.462 | 0.696 |
+| LSTM 1 (uni_lstm_1) | Tanh | 0.942 | 1.462 | 0.695 |
+| LSTM 2 (uni_lstm_2) | ReLU | 0.941 | 1.461 | 0.695 |
 
-Both models beat the naive baseline and perform virtually on par — a sharp contrast to the raw prices notebook where tanh produced a MASE of 15.91 and ReLU produced 3.001.
+Both models beat the naive baseline and perform virtually on par — a sharp contrast to the raw prices notebook where tanh produced a MASE of 7.605 and ReLU produced 2.226.
 
 **Why tanh recovers in the returns notebook:** In the raw prices notebook, the tanh LSTM collapsed because it was trying to track an unbounded, trending signal using bounded activations. The hidden state saturated, gradients vanished, and the network lost its memory entirely. In the returns notebook, the target is stationary and near-zero-centred. The values the LSTM needs to track — daily dollar changes fluctuating around zero — are well within the natural operating range of tanh's (-1, 1) output. The gating mechanism can function as intended: the forget gate learns what to discard, the input gate learns what to absorb, and gradients flow stably across time steps. The non-stationarity of raw prices was masking what tanh is actually well-suited to do. The returns notebook rehabilitates it fully.
 
@@ -377,8 +377,8 @@ Dense(128, relu) -> Dense(1)
 
 **Multivariate LSTM (`model_multi_lstm`):**
 ```
-Lambda(expand_dims) -> LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
-                    -> LSTM(32, tanh, recurrent_dropout=0.2) -> Dense(1)
+Reshape((7, 4)) -> LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
+                 -> LSTM(32, tanh, recurrent_dropout=0.2) -> Dense(1)
 ```
 
 **Multivariate GRU (`model_multi_gru`):**
@@ -389,17 +389,17 @@ Reshape((7, 4)) -> GRU(32, tanh, recurrent_dropout=0.2, return_sequences=True)
 
 | Model | MAE | RMSE | MASE |
 |-------|-----|------|------|
-| Multivariate Dense | 0.960 | 1.471 | 0.709 |
-| Multivariate LSTM (Tanh) | 0.942 | 1.462 | 0.695 |
-| Multivariate GRU (Tanh) | 0.942 | 1.463 | 0.695 |
+| Multivariate Dense | 0.967 | 1.488 | 0.714 |
+| Multivariate LSTM (Tanh) | 0.944 | 1.464 | 0.697 |
+| Multivariate GRU (Tanh) | 0.943 | 1.463 | 0.696 |
 
-The multivariate LSTM and GRU achieve the best MASE across the entire project (0.695), though the improvement over the univariate LSTM (0.696) is negligibly small — a pattern explained in the cross-cutting observations below.
+The multivariate GRU achieves the best MASE across the entire project (0.696), with the multivariate LSTM close behind at 0.697. The improvement over the best univariate LSTM (0.695) is negligibly small — a pattern explained in the cross-cutting observations below.
 
 ---
 
 ### GRU Network
 
-The **Gated Recurrent Unit (GRU)** is introduced in the returns notebook as a leaner alternative to LSTM. GRUs use two gates (reset and update) instead of LSTM's three (input, forget, output), making them computationally lighter while achieving comparable sequential learning. The GRU and LSTM produce essentially identical results here (MASE 0.695 each), consistent with the general finding that on shorter sequences with relatively weak autocorrelation, the architectural difference between the two is negligible. The best-performing multivariate GRU (`model_multi_gru`) is saved as a `.keras` artifact.
+The **Gated Recurrent Unit (GRU)** is introduced in the returns notebook as a leaner alternative to LSTM. GRUs use two gates (reset and update) instead of LSTM's three (input, forget, output), making them computationally lighter while achieving comparable sequential learning. The GRU and LSTM produce essentially identical results here (MASE 0.696 and 0.697 respectively), consistent with the general finding that on shorter sequences with relatively weak autocorrelation, the architectural difference between the two is negligible. The best-performing multivariate GRU (`model_multi_gru`) is saved as a `.keras` artifact.
 
 ---
 
@@ -407,7 +407,7 @@ The **Gated Recurrent Unit (GRU)** is introduced in the returns notebook as a le
 
 ### Why Dense and RNN Models Perform Similarly
 
-Across both notebooks, the Dense networks perform almost identically to the LSTM and GRU networks. In the returns notebook, the univariate Dense (MASE 0.709) is only marginally behind the univariate LSTM (0.696), and the multivariate Dense (0.709) trails the multivariate LSTM and GRU (0.695) by a negligible margin.
+Across both notebooks, the Dense networks perform almost identically to the LSTM and GRU networks. In the returns notebook, the univariate Dense (MASE 0.711) is only marginally behind the univariate LSTM (0.695), and the multivariate Dense (0.714) trails the multivariate LSTM and GRU (0.697/0.696) by a negligible margin.
 
 The reason is rooted in the nature of the signal. Dense networks with a sliding window operate on a fixed-length vector of past observations and learn a weighted combination of those lagged values — they have no explicit mechanism for capturing sequential dependencies across time steps. LSTMs and GRUs, by contrast, maintain a hidden state that can theoretically carry information across arbitrarily long sequences. On a signal with strong temporal dependencies and long-range patterns, this architectural advantage would be decisive.
 
@@ -419,7 +419,7 @@ This is an important finding: architectural sophistication is not a substitute f
 
 ### Why Multivariate Offers Only Marginal Gains
 
-Adding EMA-20, EMA-5, and MACD alongside the raw return series produces only a negligible improvement over the univariate baseline — the best multivariate model (MASE 0.695) barely edges the best univariate model (MASE 0.696).
+Adding EMA-20, EMA-5, and MACD alongside the raw return series produces only a negligible improvement over the univariate baseline — the best multivariate model (MASE 0.696) barely edges the best univariate model (MASE 0.695).
 
 This result is logically consistent with the nature of the features being added. All three indicators are computed directly from the price or return series itself — they are deterministic transformations of the same underlying signal. EMA-5 is a weighted average of recent returns. EMA-20 is a longer weighted average of the same returns. MACD is a difference between two such averages. None of these indicators introduces genuinely new information that is independent of the return history the model already has in its 7-day sliding window. They are, in effect, redundant encodings of the same data, expressed at different smoothing scales.
 
@@ -433,7 +433,7 @@ MAPE is a standard evaluation metric in time-series forecasting and is included 
 
 MAPE divides the absolute error at each observation by the magnitude of the true value. For raw prices, this is well-behaved: NFLX prices range from approximately $1 to $694, so the denominator is always substantial and the percentage errors are bounded. For returns, the true value is a daily dollar change that frequently passes through values close to zero. When the denominator approaches zero, the percentage error for that single observation can reach millions of percent, even if the prediction is only slightly off. The average across thousands of such observations produces a metric value that is numerically enormous but statistically uninformative.
 
-The naive baseline on returns, for instance, produces a MAPE of 414,440% — not because the model is making absurd predictions, but because several denominator values are near zero. The Dense 7-day model produces a MAPE in the tens of thousands of percent for the same structural reason, despite a perfectly sensible MAE of 0.961.
+The naive baseline on returns, for instance, produces a MAPE of 414,440% — not because the model is making absurd predictions, but because several denominator values are near zero. The Dense 7-day model produces a MAPE in the tens of thousands of percent for the same structural reason, despite a perfectly sensible MAE of 0.964.
 
 MAPE is nevertheless reported for two reasons. First, it maintains a consistent metric table structure across both notebooks. Second, it serves as a conditional diagnostic: if two models have similar MAE and MASE but very different MAPE values in the returns setting, that indicates one model is making systematically worse predictions specifically on the near-zero return days — a type of conditional failure that MASE would average out. In this project, the MAPE values across all models in the returns setting are all similarly and uniformly inflated, which confirms the issue is structural rather than model-specific. MASE governs all conclusions.
 
@@ -447,13 +447,13 @@ MAPE is nevertheless reported for two reasons. First, it maintains a consistent 
 |-------|----------------|-----|------|:---:|
 | Naive Forecast | — | 0.939 | 1.000 | — (baseline) |
 | ARIMA(1,1,1) | Walk-forward | 0.945 | 1.007 | No |
-| Dense (Univariate) | 7-day | 13.75 | 1.030 | No |
-| Dense (Univariate) | 10-day | 14.13 | 1.060 | No |
-| Dense (Univariate) | 14-day | 14.29 | 1.070 | No |
-| LSTM (ReLU) | 7-day | 40.05 | 3.001 | No |
-| LSTM (Tanh) | 7-day | 212.32 | 15.91 | No |
-| Multivariate LSTM | 7-day x 4 features | 2.32 | 2.470 | No |
-| Multivariate Dense | 7-day x 4 features | 1.11 | 1.177 | No |
+| Dense (Univariate) | 7-day | 0.980 | 1.042 | No |
+| Dense (Univariate) | 10-day | 1.012 | 1.078 | No |
+| Dense (Univariate) | 14-day | 1.140 | 1.211 | No |
+| LSTM (ReLU) | 7-day | 2.093 | 2.226 | No |
+| LSTM (Tanh) | 7-day | 7.153 | 7.605 | No |
+| Multivariate LSTM | 7-day x 4 features | 2.597 | 2.766 | No |
+| Multivariate Dense | 7-day x 4 features | 1.095 | 1.165 | No |
 
 No model in the raw prices notebook beats the naive forecast on MASE.
 
@@ -462,16 +462,16 @@ No model in the raw prices notebook beats the naive forecast on MASE.
 | Model | Window / Config | MAE | MASE | Beats Naive? |
 |-------|----------------|-----|------|:---:|
 | Naive Forecast | — | 1.357 | 1.000 | — (baseline) |
-| Dense (Univariate) | 7-day | 0.961 | 0.709 | Yes |
-| Dense (Univariate) | 10-day | 0.964 | 0.712 | Yes |
-| Dense (Univariate) | 14-day | 0.983 | 0.724 | Yes |
-| LSTM (Tanh) | 7-day | 0.943 | 0.696 | Yes |
-| LSTM (ReLU) | 7-day | 0.944 | 0.696 | Yes |
-| Multivariate Dense | 7-day x 4 features | 0.960 | 0.709 | Yes |
-| Multivariate LSTM (Tanh) | 7-day x 4 features | 0.942 | 0.695 | Yes |
-| Multivariate GRU (Tanh) | 7-day x 4 features | 0.942 | 0.695 | Yes |
+| Dense (Univariate) | 7-day | 0.964 | 0.711 | Yes |
+| Dense (Univariate) | 10-day | 0.977 | 0.722 | Yes |
+| Dense (Univariate) | 14-day | 0.972 | 0.716 | Yes |
+| LSTM (Tanh) | 7-day | 0.942 | 0.695 | Yes |
+| LSTM (ReLU) | 7-day | 0.941 | 0.695 | Yes |
+| Multivariate Dense | 7-day x 4 features | 0.967 | 0.714 | Yes |
+| Multivariate LSTM (Tanh) | 7-day x 4 features | 0.944 | 0.697 | Yes |
+| Multivariate GRU (Tanh) | 7-day x 4 features | 0.943 | 0.696 | Yes |
 
-Every model in the returns notebook beats the naive forecast. The best models (Multivariate LSTM and GRU) achieve a MASE of 0.695 — approximately 30% better than the naive baseline.
+Every model in the returns notebook beats the naive forecast. The best model (Multivariate GRU) achieves a MASE of 0.696 — approximately 30% better than the naive baseline.
 
 ---
 
@@ -529,7 +529,7 @@ This project demonstrates several durable lessons that extend beyond Netflix and
 
 **More features are not always better.** Adding EMA-20, EMA-5, and MACD produced only a negligible improvement over the univariate models because all three features are deterministic transformations of the same return series. Feature engineering only adds value when the new features carry genuinely independent information.
 
-**The tanh failure in the raw prices notebook is a diagnostic, not a verdict.** Tanh is the theoretically correct activation for LSTM gates. Its catastrophic failure on raw prices (MASE 15.91) is caused entirely by the non-stationarity of the target — the bounded activation saturates when tracking an unbounded trend. The returns notebook confirms this: with a stationary, near-zero-centred target, the tanh LSTM performs well (MASE 0.696), matching the ReLU variant and validating tanh's theoretical correctness for recurrent architectures.
+**The tanh failure in the raw prices notebook is a diagnostic, not a verdict.** Tanh is the theoretically correct activation for LSTM gates. Its severe failure on raw prices (MASE 7.605) is caused entirely by the non-stationarity of the target — the bounded activation saturates when tracking an unbounded trend. The returns notebook confirms this: with a stationary, near-zero-centred target, the tanh LSTM performs well (MASE 0.695), matching the ReLU variant and validating tanh's theoretical correctness for recurrent architectures.
 
 **Empirically validating a negative result is productive.** The raw prices notebook is not wasted work. It provides a rigorous, empirical demonstration of the Random Walk Theory and the weak-form EMH for NFLX over a 23-year period. This grounding makes the improvements in the returns notebook interpretable and credible — they arise from correcting a known, theoretically motivated problem, not from ad hoc tuning.
 
