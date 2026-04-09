@@ -383,8 +383,8 @@ Lambda(expand_dims) -> LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=Tr
 
 **Multivariate GRU (`model_multi_gru`):**
 ```
-Lambda(expand_dims) -> GRU(32, tanh, recurrent_dropout=0.2, return_sequences=True)
-                    -> GRU(32, tanh, recurrent_dropout=0.2) -> Dense(1)
+Reshape((7, 4)) -> GRU(32, tanh, recurrent_dropout=0.2, return_sequences=True)
+               -> GRU(32, tanh, recurrent_dropout=0.2) -> Dense(1)
 ```
 
 | Model | MAE | RMSE | MASE |
