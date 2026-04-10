@@ -1,6 +1,6 @@
 # Netflix (NFLX) Stock Forecasting — Raw Prices and Absolute Returns
 
-> A two-phase time-series forecasting study on Netflix stock (2002–2025). The raw prices notebook uses classical statistical models and deep learning on raw closing prices, empirically validating the Random Walk Theory and the Efficient Market Hypothesis — proving that raw prices are fundamentally unpredictable from their own history. The returns notebook addresses this limitation by shifting the prediction target to absolute daily returns, a stationary series, and extends the model suite with GRU networks and a leakage-free multivariate pipeline. Together, the two notebooks form a complete, self-contained study in why target choice is the most consequential modelling decision in financial time-series forecasting.
+> A two-phase time-series forecasting study on Netflix stock (2002–2025). The raw prices notebook uses classical statistical models and deep learning on raw closing prices, empirically validating the Random Walk Theory and the Efficient Market Hypothesis — proving that raw prices are fundamentally unpredictable from their own history. The returns notebook addresses this limitation by shifting the prediction target to absolute daily returns, a stationary series, and extends the model suite with GRU networks and a leakage-free multivariate pipeline. The best-performing model is deployed as a REST inference API via FastAPI. Together, the two notebooks and the API form a complete end-to-end study — from raw data to a served, production-ready model — and a practical demonstration of why target choice, layer serialisation, and deployment constraints all matter as much as model architecture.
 
 ---
 
@@ -32,10 +32,12 @@
 12. [Key Finding: Random Walk Theory and EMH](#key-finding-random-walk-theory-and-emh)
 13. [Why Raw Prices Fail — and What the Returns Notebook Fixes](#why-raw-prices-fail--and-what-the-returns-notebook-fixes)
 14. [Overall Impact](#overall-impact)
-15. [Model Persistence](#model-persistence)
-16. [Tech Stack](#tech-stack)
-17. [Project Structure](#project-structure)
-18. [References](#references)
+15. [From Notebook to Production — Lambda vs Reshape](#from-notebook-to-production--lambda-vs-reshape)
+16. [FastAPI Inference Service](#fastapi-inference-service)
+17. [Model Persistence](#model-persistence)
+18. [Tech Stack](#tech-stack)
+19. [Project Structure](#project-structure)
+20. [References](#references)
 
 ---
 
@@ -238,11 +240,11 @@ Reshape((7, 1)) -> LSTM(32, tanh, recurrent_dropout=0.2, return_sequences=True)
 | LSTM 1 | ReLU | 2.093 | 3.017 | 3.678% | 2.226 |
 | LSTM 2 | Tanh | 7.153 | 13.624 | 8.002% | 7.605 |
 
-Both models fail catastrophically — the ReLU variant is three times worse than naive, and the tanh variant nearly sixteen times worse. The reasons are distinct for each.
+Both models fail catastrophically — the ReLU variant is more than twice as bad as naive, and the tanh variant more than seven times worse. The reasons are distinct for each.
 
-**Why ReLU fails in LSTMs:** LSTMs were designed with `tanh` and `sigmoid` gate activations that naturally bound internal state values to a finite range. Substituting `relu` for the recurrent activation disrupts this gating mechanism — unbounded activations can compound through time steps and cause the internal state to explode. A MASE of 3.0 reflects exactly this instability.
+**Why ReLU fails in LSTMs:** LSTMs were designed with `tanh` and `sigmoid` gate activations that naturally bound internal state values to a finite range. Substituting `relu` for the recurrent activation disrupts this gating mechanism — unbounded activations can compound through time steps and cause the internal state to explode. A MASE of 2.226 reflects exactly this instability.
 
-**Why tanh fails so severely in the raw prices notebook:** The tanh LSTM's catastrophic performance (MASE 15.91) is not a verdict against tanh as an activation — tanh is theoretically the correct choice for LSTM gates. The failure is a symptom of the non-stationary target. The raw NFLX price series has a strong upward trend with a time-varying mean: it went from under $1 to over $700. When tanh — a bounded activation with output range (-1, 1) — is applied to the hidden state of a network trying to track this unbounded, trending signal, the gating mechanism saturates. The gradients vanish, the network's memory collapses, and it produces predictions that diverge wildly from the test set. In short, tanh is not the problem; the non-stationary, trending input is the problem, and tanh makes the network more sensitive to it than ReLU because of its bounded nature. This is a diagnostic about the data, not a verdict about the architecture.
+**Why tanh fails so severely in the raw prices notebook:** The tanh LSTM's severe performance (MASE 7.605) is not a verdict against tanh as an activation — tanh is theoretically the correct choice for LSTM gates. The failure is a symptom of the non-stationary target. The raw NFLX price series has a strong upward trend with a time-varying mean: it went from under $1 to over $700. When tanh — a bounded activation with output range (-1, 1) — is applied to the hidden state of a network trying to track this unbounded, trending signal, the gating mechanism saturates. The gradients vanish, the network's memory collapses, and it produces predictions that diverge wildly from the test set. In short, tanh is not the problem; the non-stationary, trending input is the problem, and tanh makes the network more sensitive to it than ReLU because of its bounded nature. This is a diagnostic about the data, not a verdict about the architecture.
 
 `recurrent_dropout=0.2` is used as a regularisation technique specific to RNNs. Unlike standard dropout, recurrent dropout applies the same mask at each time step, preserving the temporal flow of gradients.
 
@@ -537,6 +539,136 @@ This project demonstrates several durable lessons that extend beyond Netflix and
 
 ---
 
+
+## From Notebook to Production — Lambda vs Reshape
+
+### Why All RNN Models Use `Reshape` Instead of `Lambda`
+
+All recurrent models in both notebooks (univariate LSTMs and the multivariate LSTM and GRU) use a `Reshape` layer to transform the flat input vector into a 3D tensor before passing it into the recurrent stack. The shapes involved are `(7, 1)` for univariate models (7 time steps, 1 feature) and `(7, 4)` for multivariate models (7 time steps, 4 features).
+
+An earlier iteration of this project used a `Lambda` layer instead — specifically `Lambda(lambda x: tf.expand_dims(x, axis=-1))` for univariate and `Lambda(lambda x: tf.reshape(x, [-1, 7, 4]))` for multivariate. Both approaches produce identical tensors and identical results inside a Jupyter notebook. The Lambda variant was replaced in all models when the multivariate GRU was deployed to a FastAPI inference service, and the issue exposed a fundamental difference between how Lambda and Reshape behave outside the training environment.
+
+### The Production Failure: Lambda Layers and Serialisation
+
+When a Keras model containing a `Lambda` layer is saved to a `.keras` file and later loaded in a different Python process — such as a FastAPI worker — Keras must reconstruct the layer from its saved configuration. Lambda layers wrap arbitrary Python functions or lambda expressions. These are not first-class Keras objects; they are serialised as Python source code strings and then `eval`'d back at load time. This process is fragile in several ways:
+
+**Scope and closure issues.** The lambda function is saved as a string such as `"lambda x: tf.expand_dims(x, axis=-1)"`. When Keras evaluates this string in a new process, it must resolve `tf` in the current scope. In a notebook, TensorFlow is already imported and in scope everywhere. In a FastAPI worker process, the scope at the point of model loading may differ from the notebook environment, causing `Lambda.call()` to fail with a `NameError` or a silent wrong-output bug.
+
+**`safe_mode` restriction.** Keras 3 introduced `safe_mode=True` as the default when loading models, which explicitly blocks the execution of arbitrary Python code embedded in saved models — which is exactly what a Lambda layer requires. Loading a Lambda-containing model in `safe_mode=True` raises an error. Disabling `safe_mode` (`safe_mode=False`) suppresses the error but requires explicitly opting into a security risk, and even then scope issues can remain.
+
+**Portability across environments.** Lambda layers make a model non-portable in any environment where the exact Python namespace at save time cannot be reproduced: different TensorFlow versions, containerised deployments, ONNX export, TensorFlow Lite conversion, and TensorFlow Serving all either fail or behave unexpectedly with Lambda-containing models.
+
+### Why `Reshape` Fixes This
+
+`Reshape` is a first-class, stateless Keras layer. It has no embedded Python code — its configuration is just the target shape tuple `(7, 1)` or `(7, 4)`. It serialises and deserialises perfectly across any environment, requires no `eval`, is safe-mode compatible, and carries no scope dependencies. It does exactly the same tensor transformation as the Lambda variants used in notebooks, but does so through the standard Keras layer serialisation path rather than arbitrary code execution.
+
+This is a general principle that applies to any model moving from notebook to production: **never embed arbitrary Python logic in Lambda layers in any model you intend to deploy**. Anything that can be expressed as a named Keras layer or a sequence of named operations should be. Lambda layers are useful for rapid prototyping in notebooks but are a production liability.
+
+---
+
+## FastAPI Inference Service
+
+The multivariate GRU model (`gru_multi_returns.keras`) — the best-performing model in this project — is deployed as a REST inference API using FastAPI. The service takes a list of historical daily returns as input, computes the same feature engineering pipeline used during training (EMA-20, EMA-5, MACD histogram, 7-period lags), runs a forward pass through the loaded GRU model, and returns the predicted next-day absolute return.
+
+### Architecture Overview
+
+```
+POST /predict
+    |
+    +-- StockInput(returns_list: List[float])
+    |        |
+    |        +-- preprocessing_returns()
+    |                |
+    |                +-- Compute EMA-20, EMA-5, MACD histogram
+    |                +-- Create 7-period lag features for each
+    |                +-- Drop NaN rows (first 7 rows)
+    |                +-- Select 28 input columns [returns 1..7, ema_20 1..7, ema_5 1..7, macd 1..7]
+    |
+    +-- model.predict(features)[0][0]
+    |
+    +-- Returns(returns_output: float)
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/root` | Welcome message — confirms the service is reachable |
+| `GET` | `/heath` | Health check — reports whether the model is loaded |
+| `POST` | `/predict` | Main inference endpoint — accepts returns history, returns predicted next-day return |
+
+### Request and Response Schema
+
+**Request — `POST /predict`:**
+```json
+{
+  "returns_list": [-0.25, 0.09, -1.37, 0.92, -0.27, 0.79, 0.22, -0.79, 0.39, -1.16, ...]
+}
+```
+
+The `returns_list` must contain at least 14 values (7 needed for lag computation + 7 for the indicators to stabilise). In practice, passing 30 or more recent daily returns produces more stable EMA and MACD values because the exponentially weighted moving averages require sufficient history to warm up.
+
+**Response:**
+```json
+{
+  "returns_output": 0.312
+}
+```
+
+The response value is the predicted absolute return in USD — the model's estimate of `Close(t+1) - Close(t)`.
+
+### Model Lifecycle — Lifespan Context Manager
+
+The model is loaded once at startup using FastAPI's `lifespan` context manager and held in a module-level global. This avoids reloading the model on every request, which would make inference orders of magnitude slower. The model is released on shutdown.
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global model
+    model = tf.keras.models.load_model('Models/gru_multi_returns.keras', safe_mode=False)
+    yield
+    model = None
+```
+
+The `safe_mode=False` flag is required because the current model artifacts were trained with an older Lambda layer in early iterations. All models retrained after the Lambda-to-Reshape migration can be loaded with the default `safe_mode=True`.
+
+### Preprocessing Pipeline
+
+The `preprocessing_returns` function in `main.py` replicates the exact feature engineering from the returns notebook:
+
+```python
+def preprocessing_returns(returns_list: List[float]):
+    df = pd.DataFrame(returns_list, columns=['returns'])
+    df['ema_20'] = df['returns'].ewm(span=20, adjust=False).mean()
+    df['ema_5']  = df['returns'].ewm(span=5,  adjust=False).mean()
+    ema_12       = df['returns'].ewm(span=12, adjust=False).mean()
+    ema_26       = df['returns'].ewm(span=26, adjust=False).mean()
+    macd         = ema_12 - ema_26
+    signal_line  = macd.ewm(span=9, adjust=False).mean()
+    df['macd_histogram'] = macd - signal_line
+
+    for i in range(7):
+        df[f'returns {i+1}']       = df['returns'].shift(periods=i+1)
+        df[f'ema_20 {i+1}']        = df['ema_20'].shift(periods=i+1)
+        df[f'ema_5 {i+1}']         = df['ema_5'].shift(periods=i+1)
+        df[f'macd_histogram {i+1}'] = df['macd_histogram'].shift(periods=i+1)
+
+    df = df.dropna()
+    return df[input_cols]  # 28-column feature matrix
+```
+
+This is a faithful reproduction of the notebook pipeline. No StandardScaler is applied, consistent with the training setup for the multivariate returns models.
+
+### Running the Service
+
+```bash
+uvicorn main:app --reload
+```
+
+The API documentation is auto-generated by FastAPI and available at `http://localhost:8000/docs` (Swagger UI) and `http://localhost:8000/redoc` once the service is running.
+
+---
+
 ## Model Persistence
 
 Trained models and scalers are saved for downstream inference and deployment.
@@ -565,6 +697,9 @@ Trained models and scalers are saved for downstream inference and deployment.
 | `tensorflow` / `keras` | >=2.12 | Dense, LSTM, and GRU neural network models |
 | `matplotlib` | >=3.6 | Visualisation of price series, returns, and predictions |
 | `joblib` | latest | Model and scaler persistence |
+| `fastapi` | latest | REST API framework for the inference service |
+| `uvicorn` | latest | ASGI server for running the FastAPI application |
+| `pydantic` | >=2.0 | Request/response schema validation |
 
 ---
 
@@ -575,6 +710,7 @@ netflix-stock-prediction/
 |
 |-- netflix_raw_prices.ipynb   # Raw price prediction; empirically validates EMH
 |-- netflix_returns.ipynb      # Absolute returns prediction; stationary target
+|-- main.py                    # FastAPI inference service
 |-- README.md                  # This file
 |
 +-- Models/
@@ -583,7 +719,7 @@ netflix-stock-prediction/
     |-- scaler_multi_target_prices.pkl     # Multivariate target scaler (raw prices)
     |-- dense_model_uni_prices.keras       # Best univariate dense model (7-day window)
     |-- lstm_uni_returns.keras             # Best univariate LSTM on returns (Tanh, 7-day)
-    +-- gru_multi_returns.keras            # Best multivariate GRU on returns
+    +-- gru_multi_returns.keras            # Best multivariate GRU on returns (served by main.py)
 ```
 
 ---
